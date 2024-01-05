@@ -14,7 +14,8 @@ def train_recognition_model(
 		dataset_sizes,
 		device,
 		writer,
-		num_epochs=25
+		num_epochs=25,
+		multi_gpu=False
 ):
 	since = time.time()
 
@@ -30,7 +31,10 @@ def train_recognition_model(
 		print('-' * 10)
 
 		if epoch == 15:
-			model.freeze_base_cnn(False)
+			if multi_gpu:
+				model.module.freeze_base_cnn(False)
+			else:
+				model.freeze_base_cnn(False)
 
 		# Each epoch has a training and validation phase
 		for phase in ['train', 'val']:
@@ -50,12 +54,15 @@ def train_recognition_model(
 				# zero the parameter gradients
 				optimizer.zero_grad()
 
+				
 				# forward
 				# track history if only in train
 				with torch.set_grad_enabled(phase == 'train'):
 					if phase == 'train':
 						# note: this is for arc margin classifier
-						outputs = model(inputs, labels, device)
+						#outputs = model(inputs, labels, device)
+						# note: this is for base recog classifier
+						outputs = model(inputs, device)
 					else:
 						outputs = model(inputs)
 					# outputs = model(inputs)
