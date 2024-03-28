@@ -24,10 +24,14 @@ class BaseRecogClassifier(nn.Module):
 
 		# self.FaceNet.classifier[6] = nn.Linear(4096, 512)
 
-		num_features = self.base_net.classifier[6].in_features
+		num_features = 84*7*7 #self.base_net.classifier[6].in_features
 		# Add a new fully connected layer with the desired number of output units
-		del self.base_net.classifier[1:]
+		#del self.base_net.classifier[2:]
 
+		self.AdaptiveAvgPoolLayer = nn.AdaptiveAvgPool2d(output_size=(7, 7))
+		self.ReducLayer = nn.Conv2d(in_channels=512, out_channels=84, kernel_size=1)
+		self.FlatLayer = nn.Flatten()
+		
 		# face classification
 		# self.FaceClassFC = #AngleLinear(512, NumFaceClasses)
 		self.FaceClassFC = nn.Linear(num_features, num_classes)
@@ -64,11 +68,12 @@ class BaseRecogClassifier(nn.Module):
 		#x = self.base_net(input_images)
 		#output = self.fc_head(x)
 
-		import pdb
+		PreBaseEmbedding = self.base_net.features(input_images)
 
-		pdb.set_trace()
+		PreBaseEmbedding1 = self.AdaptiveAvgPoolLayer(PreBaseEmbedding)
+		PreBaseEmbedding2 = self.ReducLayer(PreBaseEmbedding1)
+		BaseEmbedding = self.FlatLayer(PreBaseEmbedding2)
 
-		BaseEmbedding = self.base_net(input_images)
 		IdEmbed = self.BaseEmbAct(BaseEmbedding)
 		IdEmbed = self.FaceBatchNorm1d(IdEmbed)
 		IdEmbed = self.DropoutLayer(IdEmbed)

@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 import os
 
+import recognition_config as cfg
 import torch
 import numpy as np
 from PIL import Image
@@ -14,6 +15,8 @@ from torchvision import transforms
 
 from Datasets.Morph2.DataParser import DataParser
 from Datasets.Morph2.Morph2RecognitionDataset import Morph2RecognitionDataset
+from Datasets.CACD.CacdDataParser import CacdDataParser
+from Datasets.CACD.CacdRecognitionDataset import CacdRecognitionDataset
 from Models.ArcMarginClassifier import ArcMarginClassifier
 from Models.BaseRecogClassifier import BaseRecogClassifier
 from Optimizers.RangerLars import RangerLars
@@ -28,14 +31,58 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
 torch.cuda.empty_cache()
 
-data_parser = DataParser('./Datasets/Morph2/aligned_data/aligned_dataset_with_metadata_uint8.hdf5')
+
+
+if cfg.DATASET_SELECT == "Morph2":
+	data_parser = DataParser(cfg.MORPH2_DATASET_PATH)
+elif cfg.DATASET_SELECT == "CACD":
+	data_parser = CacdDataParser(cfg.CACD_DATASET_PATH)
 data_parser.initialize_data()
 
 ids = np.unique([json.loads(m)['id_num'] for m in data_parser.y_train])
 
 X_train, X_test, y_train, y_test = train_test_split(data_parser.x_train, data_parser.y_train, test_size=0.33, random_state=42)
 
-train_ds = Morph2RecognitionDataset(
+
+if cfg.DATASET_SELECT == "Morph2":
+	train_ds = Morph2RecognitionDataset(
+		X_train,
+		y_train,
+		ids,
+		transforms.Compose([
+			transforms.RandomResizedCrop(224, (0.9, 1.0)),
+			transforms.RandomHorizontalFlip(),
+			transforms.ColorJitter(
+				brightness=0.125,
+				contrast=0.125,
+				saturation=0.125,
+				hue=0.125
+			),
+			transforms.RandomAffine(
+				degrees=15,
+				translate=(0.15, 0.15),
+				scale=(0.85, 1.15),
+				shear=15,
+				resample=Image.BICUBIC
+			),
+			transforms.ToTensor(),
+			transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+			# transforms.RandomErasing(p=0.5, scale=(0.02, 0.25))
+		])
+	)
+
+	test_ds = Morph2RecognitionDataset(
+		X_test,
+		y_test,
+		ids,
+		transforms.Compose([
+			transforms.Resize(224),
+			transforms.ToTensor(),
+			transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+		])
+	)
+elif cfg.DATASET_SELECT == "CACD":
+	train_ds = CacdRecognitionDataset(
 	X_train,
 	y_train,
 	ids,
@@ -59,18 +106,18 @@ train_ds = Morph2RecognitionDataset(
 		transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 		# transforms.RandomErasing(p=0.5, scale=(0.02, 0.25))
 	])
-)
+	)
 
-test_ds = Morph2RecognitionDataset(
-	X_test,
-	y_test,
-	ids,
-	transforms.Compose([
-		transforms.Resize(224),
-		transforms.ToTensor(),
-		transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-	])
-)
+	test_ds = CacdRecognitionDataset(
+		X_test,
+		y_test,
+		ids,
+		transforms.Compose([
+			transforms.Resize(224),
+			transforms.ToTensor(),
+			transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+		])
+	)
 
 image_datasets = {
 	'train': train_ds,
@@ -85,7 +132,11 @@ data_loaders = {
 dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
 
 # Create model and parameters
-model = BaseRecogClassifier(len(ids)) #ArcMarginClassifier(len(ids))
+if cfg.MODEL == "BaseRecogClassifier":
+	model = BaseRecogClassifier(len(ids)) #ArcMarginClassifier(len(ids))
+elif cfg.MODEL == "ArcMarginClassifier":
+	model = ArcMarginClassifier(len(ids))
+
 model.to(device)
 model.freeze_base_cnn(True)
 
@@ -104,7 +155,7 @@ experiment_name = cur_time_str
 
 ### Train ###
 
-writer = SummaryWriter('logs/Morph2_recognition/vgg16/RangerLars_unfreeze_at_15_lr_1e2_steplr_01_batchsize_64_sat_bb_' + experiment_name)
+writer = SummaryWriter(f'logs/{cfg.DATASET_SELECT}_recognition/vgg16/RangerLars_unfreeze_at_15_lr_1e2_steplr_01_batchsize_64_sat_bb_' + experiment_name)
 
 best_classification_model = train_recognition_model(
 	model,
@@ -121,7 +172,7 @@ best_classification_model = train_recognition_model(
 
 print('saving best model')
 
-model_path = 'weights/Morph2_recognition/vgg16/RangerLars_unfreeze_at_15_lr_1e2_steplr_01_batchsize_64_sat_bb_' + experiment_name
+model_path = f'weights/{cfg.DATASET_SELECT}_recognition/vgg16/RangerLars_unfreeze_at_15_lr_1e2_steplr_01_batchsize_64_sat_bb_' + experiment_name
 if not os.path.exists(model_path):
 	os.makedirs(model_path)
 FINAL_MODEL_FILE = os.path.join(model_path, "weights.pt")
